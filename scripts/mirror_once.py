@@ -92,7 +92,7 @@ def main():
     participants = json.load(open(PARTICIPANTS))
     already = mirrored_ids()
     changed = False
-    allkeys = {}
+    allkeys, allnames = {}, {}
     for p in participants:
         if not p.get("active", True) or not due(p):
             continue
@@ -118,6 +118,8 @@ def main():
             except Exception:
                 pass
         allkeys.update(keys)
+        for kid in keys:            # attribute each key to this participant, so the viewer shows WHO produced what
+            allnames[kid] = name
         # object records not yet mirrored
         objs = [p for p in paths if (p.startswith("registry/plankton/objects/") or
                                      p.startswith("registry/nekton/objects/")) and p.endswith(".json")]
@@ -158,6 +160,13 @@ def main():
         except Exception: pass
     merged.update(allkeys)
     json.dump(merged, open(keyspath, "w"), separators=(",", ":"), sort_keys=True)
+    namespath = os.path.join(MIRROR, "names.json")
+    mnames = {}
+    if os.path.exists(namespath):
+        try: mnames = json.load(open(namespath))
+        except Exception: pass
+    mnames.update(allnames)
+    json.dump(mnames, open(namespath, "w"), separators=(",", ":"), sort_keys=True)
     print("mirror changed" if changed else "no change")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as gh:
