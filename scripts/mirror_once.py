@@ -92,6 +92,7 @@ def main():
     participants = json.load(open(PARTICIPANTS))
     already = mirrored_ids()
     changed = False
+    allkeys = {}
     for p in participants:
         if not p.get("active", True) or not due(p):
             continue
@@ -116,6 +117,7 @@ def main():
                 if kid: keys[kid] = hexpub
             except Exception:
                 pass
+        allkeys.update(keys)
         # object records not yet mirrored
         objs = [p for p in paths if (p.startswith("registry/plankton/objects/") or
                                      p.startswith("registry/nekton/objects/")) and p.endswith(".json")]
@@ -142,6 +144,20 @@ def main():
         p["last_run"] = now().isoformat()
         print(f"[{name}] +{verified} verified, {dropped} dropped (registry @ {head[:9]})")
     json.dump(participants, open(PARTICIPANTS, "w"), indent=2)
+    # rebuild union.json + keys.json for the viewer (union mode) from the aggregated objects
+    import glob
+    objs = []
+    for f in sorted(glob.glob(os.path.join(MIRROR, "objects", "sha256", "*", "*.json"))):
+        try: objs.append(json.load(open(f)))
+        except Exception: pass
+    json.dump(objs, open(os.path.join(MIRROR, "union.json"), "w"), separators=(",", ":"))
+    keyspath = os.path.join(MIRROR, "keys.json")
+    merged = {}
+    if os.path.exists(keyspath):
+        try: merged = json.load(open(keyspath))
+        except Exception: pass
+    merged.update(allkeys)
+    json.dump(merged, open(keyspath, "w"), separators=(",", ":"), sort_keys=True)
     print("mirror changed" if changed else "no change")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as gh:
