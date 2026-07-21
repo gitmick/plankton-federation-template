@@ -47,11 +47,17 @@ schedule. To see it immediately: **Actions → mirror → Run workflow**.
 ## 5. Watch it converge
 Open your viewer. Each pipeline step shows **↻N** — the number of independent participants who produced
 those exact bytes, every signature re-verified in your browser. That number climbing across independent
-repos *is* the result. Headless check, in a clone of the aggregator:
+repos *is* the result. For a **headless** check (the aggregate is a static mirror, not a plain
+`PLANKTON_DIR`), read its markers — each output hash's ↻N is the number of distinct signers across its
+producer markers:
 ```bash
-export PATH="$PWD/bin:$PATH"; export PLANKTON_DIR=... # (the aggregate isn't a plain registry; use the viewer)
+python3 - <<'EOF'
+import json, glob, os
+for d in sorted(glob.glob('mirror/output/sha256/*/*')):
+    signers = {json.load(open(m)).get('by') for m in glob.glob(d + '/*.json')}
+    print(f"↻{len(signers)}  {os.path.basename(d)[:16]}…")
+EOF
 ```
-— or just read `mirror/` (the ↻ count is the number of producer markers per output hash).
 
 ## What to expect
 - Every step reaches **↻N** (N = participants), because independent deterministic runs match byte-for-byte.
