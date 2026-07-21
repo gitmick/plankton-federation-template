@@ -1,14 +1,16 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>kton · graph viewer</title>
 <link rel="icon" type="image/png" href="logo.png">
+<link rel="stylesheet" href="kton.css">
 <style>
-  :root { --bg:#0f1420; --panel:#151b29; --ink:#e7ecf5; --dim:#8b97ad; --line:#2a3346;
-          --a:#38bdf8; --b:#f5b642; --c:#34d399; --d:#c084fc; --e:#fb7185; --f:#2dd4bf;
-          --ok:#34d399; --bad:#f87171; --edge:#3b465e; --about:#7c9cff; --accent:#7c9cff; }
+  /* surface, chrome + the teal accent come from kton.css (this page locks data-theme=dark). Only the
+     graph's data-visualisation palette stays local, where the hues carry meaning (foton/claim/edge kinds). */
+  :root { --a:#38bdf8; --b:#f5b642; --c:#34d399; --d:#c084fc; --e:#fb7185; --f:#2dd4bf;
+          --ok:#34d399; --bad:#f87171; --edge:#3b465e; --about:#7c9cff; }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
               font:14px/1.55 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif; overflow:hidden; }
@@ -86,13 +88,20 @@
   .legbody{display:none;margin-top:6px} .legend.open .legbody{display:block} .legend.open .legtoggle{color:var(--ink)}
   .legend .row{display:flex;align-items:center;gap:7px;margin:2px 0} .dot{width:11px;height:11px;border-radius:50%} .sq{width:11px;height:11px;border-radius:3px} .sw{width:18px;border-top:2px solid}
   #panel{position:absolute;top:0;right:0;width:360px;max-width:88vw;height:100%;background:var(--panel);border-left:1px solid var(--line);padding:16px 18px;overflow:auto;transform:translateX(100%);transition:transform .18s}
-  #panel.open{transform:none}
+  #panel.open{transform:none} #panel .x{float:right;color:var(--dim);cursor:pointer;font-size:18px}
+  #cv{touch-action:none}  /* the graph canvas handles pan/zoom itself; stop the browser hijacking touch gestures */
+  #controls .ctoggle{display:none}  /* mobile-only collapse toggle */
+  /* mobile: the record panel becomes a BOTTOM sheet, and the filter panel collapses to a top toggle. */
   @media (max-width:640px){
-    #panel{width:100%;max-width:100%;height:64%;top:auto;bottom:0;right:0;left:0;border-left:none;border-top:1px solid var(--line);transform:translateY(100%)}
+    #panel{width:100%;max-width:100%;height:64%;top:auto;bottom:0;right:0;left:0;
+      border-left:none;border-top:1px solid var(--line);transform:translateY(100%)}
     #panel.open{transform:none}
-    #controls{left:8px;right:8px;width:auto;top:8px;max-height:40vh;overflow:auto}
+    #controls{left:8px;right:8px;width:auto;top:8px;max-height:44vh;overflow:auto}
+    #controls .ctoggle{display:inline-block;cursor:pointer;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:4px 10px;font-size:12px;margin-bottom:6px}
+    #controls.min{max-height:none;overflow:visible;padding:6px 8px}
+    #controls.min > :not(.ctoggle){display:none}   /* collapsed: only the toggle shows; tap to expand */
     .legend{display:none}
-  } #panel .x{float:right;color:var(--dim);cursor:pointer;font-size:18px}
+  }
   #panel .who{font-size:15px;font-weight:650} #panel .role{color:var(--dim);margin-bottom:8px}
   #panel .kv{font-size:12px;color:var(--dim);margin:5px 0} #panel .kv code{color:var(--ink);word-break:break-all}
   #panel h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin:14px 0 6px}
@@ -125,7 +134,7 @@
 </head>
 <body>
 <header>
-  <div class="titlerow"><img src="logo.png" alt="plankton"><h1>kton <small>· graph viewer</small></h1><span id="about" title="what is this?">ⓘ about</span><span id="gear" title="settings">⚙</span></div>
+  <div class="titlerow"><img src="logo.png" alt="kton"><h1>kton <small>· graph viewer</small></h1><span id="about" title="what is this?">ⓘ about</span><span id="gear" title="settings">⚙</span></div>
   <div id="settings" style="display:none"></div>
   <div class="story" id="story">A provenance graph, assembled in your browser from one or more <b>plankton</b>/<b>nekton</b> registries (federated by content hash). Round nodes are <b>fotons</b> (recorded computations), squares are <b>claims</b> (signed statements about them); edges are lineage (<b>builds-on</b>) and attestation (<b>about</b>, <b>reproduces</b>, <b>reviewed-by</b>). Every node's <b>signature is re-verified here</b> (WASM, Ed25519/DSSE) against the registry's published keys - the <i>record-authentic</i> tier. Click a record to walk its pedigree; click a <b>file</b> to preview its bytes, re-hashed on the spot to confirm they match. Verify with a non-kton tool: <a href="https://github.com/gitmick/kton-examples/blob/main/examples/13-foreign-verify/README.md">kton example 13</a>; re-derive the bytes: <a href="https://github.com/gitmick/kton-examples/blob/main/examples/03-reproduce/README.md">example 03</a>. <b>Esc</b> or browser <b>Back</b> returns to the overview.</div>
   <div id="stats"></div>
@@ -582,19 +591,16 @@ function fotonsLacking(pred, value){ return G.nodes.filter(n=>n.type==="foton" &
 function trustCard(id){ const cs=claimsOf(id); if(!cs.length) return `<div class="kv">no claims about this record yet.</div>`;
   const rev=cs.filter(c=>/reviewedBy/i.test(c.role));
   const appr=rev.filter(c=>/approve|accept/i.test(c.text||"")).length, rej=rev.filter(c=>/reject/i.test(c.text||"")).length;
-  // reproduction is counted by DISTINCT SIGNERS of reproduces claims, not producer-foton multiplicity:
-  // a foton is immutable, so an identical rerun dedups to one producer - corroboration accrues as claims.
-  const reproSigners=new Set(cs.filter(c=>/reproduces/i.test(c.role)).map(c=>c.signer).filter(Boolean));
-  const nrep=reproSigners.size, repro=nrep>0;
+  const repro=cs.some(c=>/reproduces/i.test(c.role));
   const g={}; for(const c of cs){ const pred=(c.role||"").split(":").pop(); const v=(c.text||"").split(",")[0]||""; (g[pred]??={}); g[pred][v]=(g[pred][v]||0)+1; }
   let rows=""; for(const pred in g){ const parts=Object.entries(g[pred]).map(([v,n])=>`${v||"—"}${n>1?" ×"+n:""}`).join(", "); rows+=`<div class="tcrow"><b>${esc(pred)}</b> · ${esc(parts)}</div>`; }
-  return `<div class="tcbanner"><span class="badge ${rej?"vno":appr?"vok":"vpart"}">${appr} approve · ${rej} reject</span> <span class="badge ${repro?"vok":"vpart"}" title="distinct signers of reproduces claims about this foton">${repro?(nrep>1?"↻"+nrep+" reproduced":"✓ reproduced"):"not reproduced"}</span></div>${rows}`;
+  return `<div class="tcbanner"><span class="badge ${rej?"vno":appr?"vok":"vpart"}">${appr} approve · ${rej} reject</span> <span class="badge ${repro?"vok":"vpart"}">${repro?"✓ reproduced":"not reproduced"}</span></div>${rows}`;
 }
 function enterExplorer(centerId, mode, push=true, note=""){ $("#overview").style.display="none"; $("#explorer").style.display="block";
   ex={center:centerId, sel:centerId, mode, grouped:false, cap:PED_CAP, note, expand:new Set(), view:{scale:1,tx:0,ty:0}, started:false}; drawControls(); layoutAndRun(); openNode(centerId);
   if(push) history.pushState({view:'explorer',center:centerId,mode},""); }
 function drawControls(){ const modes=[["nbr","neighbours"],["anc","ancestors"],["desc","descendants"],["both","both"]]; const c=G.byId.get(ex.center);
-  $("#controls").innerHTML=`<span class="back" onclick="showOverview()">← overview&nbsp;&nbsp;<span style="opacity:.55;font-weight:400">Esc</span></span>
+  $("#controls").innerHTML=`<span class="ctoggle" id="ctoggle">☰ filters ▾</span><span class="back" onclick="showOverview()">← overview&nbsp;&nbsp;<span style="opacity:.55;font-weight:400">Esc</span></span>
     <div class="qbar"><span class="qq">🔍 ${ex.note?esc(ex.note):("pedigree · "+({nbr:"neighbours",anc:"ancestors",desc:"descendants",both:"both",lin:"trace inputs",imp:"blast radius"}[ex.mode]||ex.mode))}</span><span class="qx" id="qreset" title="reset to this node's pedigree">reset ✕</span></div>
     <div class="lbl">centre</div><div style="font-size:12.5px;color:${c.type==='source'?'#cfd8e6':'var(--accent)'}">${c.type==='source'?esc(c.role):idlabel(c.participant)+" · "+esc(c.role)}</div>
     ${ex.note?`<div class="lbl" style="color:var(--b);margin-top:4px;text-transform:none;letter-spacing:0">▸ ${ex.note}</div>`:``}
@@ -610,6 +616,8 @@ function drawControls(){ const modes=[["nbr","neighbours"],["anc","ancestors"],[
   { const qr=$("#qreset"); if(qr) qr.onclick=()=>enterExplorer(ex.center,"both"); }   // reset the query -> plain pedigree of this node
   $$("#controls [data-fp]").forEach(el=>el.onclick=()=>{const p=el.dataset.fp;filt.parts.has(p)?filt.parts.delete(p):filt.parts.add(p);drawControls();layoutAndRun();});
   $$("#controls [data-ft]").forEach(el=>el.onclick=()=>{const t=el.dataset.ft;filt.types.has(t)?filt.types.delete(t):filt.types.add(t);drawControls();layoutAndRun();});
+  { const ct=$("#ctoggle"); if(ct) ct.onclick=()=>{ const c=$("#controls"); c.classList.toggle("min"); ex.ctrlsOpen=!c.classList.contains("min"); }; }
+  if(window.matchMedia&&matchMedia("(max-width:640px)").matches && !ex.ctrlsOpen) $("#controls").classList.add("min");  // phones: start collapsed, tap ☰ to expand
 }
 function layoutAndRun(){
   const set=pedigree(ex.center, ex.mode, ex.cap||PED_CAP);
@@ -687,8 +695,10 @@ function layerLayout(nodes, edges, byId){
     lay.forEach(n=>{ const ps=(anc[n.id]||[]).map(id=>byId.get(id)).filter(p=>p&&has.has(p.id)&&p._d<L);
       n._b = ps.length? ps.reduce((s,p)=>s+p._y,0)/ps.length : n._y; });
     lay.sort((a,b)=>(a._b-b._b)||a.participant.localeCompare(b.participant)); lay.forEach((n,i)=>n._y=i); }
+  const MB = window.matchMedia && matchMedia("(max-width:640px)").matches;   // phones: stack layers TOP-TO-BOTTOM for a portrait screen
   const DX=210, DY=60;
-  for(let L=0;L<=maxD;L++){ const lay=layers[L]||[], off=(lay.length-1)/2; lay.forEach((n,i)=>{ n.x=L*DX; n.y=(i-off)*DY; }); }
+  for(let L=0;L<=maxD;L++){ const lay=layers[L]||[], off=(lay.length-1)/2;
+    lay.forEach((n,i)=>{ if(MB){ n.x=(i-off)*76; n.y=L*96; } else { n.x=L*DX; n.y=(i-off)*DY; } }); }
 }
 function fitView(){ const cv=$("#cv"),DPR=devicePixelRatio||1; cv.width=cv.clientWidth*DPR; cv.height=cv.clientHeight*DPR;
   if(!ex.nodes.length){ex.view={scale:DPR,tx:cv.width/2,ty:cv.height/2};return;}
@@ -731,7 +741,7 @@ function nodeDraw(ctx,n){ const sel=n.id===ex.center;
     const r=data?RW*1.15:RW*0.7;ctx.beginPath();ctx.arc(n.x,n.y,r,0,7);ctx.fill();ctx.stroke(); if(data||sel)label(ctx,n,n.role,r); return; }
   ctx.fillStyle=pcol(n.participant);ctx.strokeStyle=n.verified?css("--ok"):css("--bad");ctx.lineWidth=sel?3:2;
   if(n.type==="foton"){ctx.beginPath();ctx.arc(n.x,n.y,RW,0,7);ctx.fill();ctx.stroke();}else{const w=RW*1.7;rrect(ctx,n.x-w/2,n.y-w/2,w,w,3);ctx.fill();ctx.stroke();}
-  if(n.type==="foton"&&n.repro>1){ const bx=n.x+RW*0.78,by=n.y-RW*0.78; ctx.fillStyle=css("--ok"); ctx.beginPath(); ctx.arc(bx,by,7.5,0,7); ctx.fill(); ctx.strokeStyle=css("--panel"); ctx.lineWidth=1.5; ctx.stroke(); ctx.fillStyle="#0b0f18"; ctx.font="bold 8.5px ui-sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("↻"+n.repro,bx,by); }
+  if(n.type==="foton"&&n.repro>1){ const bx=n.x+RW*0.78,by=n.y-RW*0.78; ctx.fillStyle=css("--ok"); ctx.beginPath(); ctx.arc(bx,by,7.5,0,7); ctx.fill(); ctx.strokeStyle=css("--panel"); ctx.lineWidth=1.5; ctx.stroke(); ctx.fillStyle="#0b0f18"; ctx.font="bold 8.5px ui-sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("↻"+n.repro,bx,by); }  // ↻N = distinct signers that produced this output (native from graph.wasm)
   // claims: append the assertion (from the WASM's rendered object text) so verdicts/roles read off the graph
   const val=(n.type==="claim"&&n.text)?": "+clip(n.text,16):"";
   if(!LOD||n.id===ex.center||n.id===ex.sel) label(ctx,n,`${n.participant.replace('pfed-','')} · ${n.role}${val}`,RW);
@@ -751,6 +761,26 @@ function startRender(){ ex.started=true; const cv=$("#cv"),DPR=devicePixelRatio|
       else { ex.sel=nd.id; openNode(nd.id); redraw(); } }
     if(pan)cv.style.cursor="grab"; drag=null;pan=null; };
   cv.ondblclick=e=>{ const n=hit(e.offsetX,e.offsetY); if(n){recentre(n.id);} };
+  // --- touch: one finger pans (or drags a node); two fingers pinch-zoom. Mirrors the mouse logic. ---
+  const toff=t=>{ const r=cv.getBoundingClientRect(); return [t.clientX-r.left, t.clientY-r.top]; };
+  let pinch=null;
+  cv.addEventListener("touchstart",e=>{ e.preventDefault(); $("#hint")?.classList.add("gone");
+    if(e.touches.length===1){ const [ox,oy]=toff(e.touches[0]); const n=hit(ox,oy);
+      if(n){drag={n,moved:false};} else {pan={x:ox*DPR,y:oy*DPR,tx:ex.view.tx,ty:ex.view.ty};} pinch=null; }
+    else if(e.touches.length>=2){ const [ax,ay]=toff(e.touches[0]),[bx,by]=toff(e.touches[1]);
+      pinch={d:Math.hypot(ax-bx,ay-by)||1, scale:ex.view.scale, tx:ex.view.tx, ty:ex.view.ty}; drag=null; pan=null; } },{passive:false});
+  cv.addEventListener("touchmove",e=>{ e.preventDefault();
+    if(pinch && e.touches.length>=2){ const [ax,ay]=toff(e.touches[0]),[bx,by]=toff(e.touches[1]);
+      const nd=Math.hypot(ax-bx,ay-by), mx=(ax+bx)/2*DPR, my=(ay+by)/2*DPR;
+      const wx=(mx-pinch.tx)/pinch.scale, wy=(my-pinch.ty)/pinch.scale;   // world point under the pinch centre
+      ex.view.scale=pinch.scale*(nd/pinch.d); ex.view.tx=mx-wx*ex.view.scale; ex.view.ty=my-wy*ex.view.scale; redraw(); }
+    else if(e.touches.length===1){ const [ox,oy]=toff(e.touches[0]);
+      if(drag){const [wx,wy]=s2w(ox,oy);drag.n.x=wx;drag.n.y=wy;drag.moved=true;redraw();}
+      else if(pan){ex.view.tx=pan.tx+(ox*DPR-pan.x);ex.view.ty=pan.ty+(oy*DPR-pan.y);redraw();} } },{passive:false});
+  cv.addEventListener("touchend",e=>{ if(drag&&!drag.moved){ const nd=drag.n;
+      if(nd.type==="run"){ (ex.expand||(ex.expand=new Set())); nd.members.forEach(m=>ex.expand.add(m)); layoutAndRun(); }
+      else { ex.sel=nd.id; openNode(nd.id); redraw(); } }
+    if(e.touches.length<2) pinch=null; if(e.touches.length===0){ drag=null; pan=null; } });
 }
 function recentre(id, push=true){ ex.center=id; ex.sel=id; ex.cap=PED_CAP; ex.note=""; ex.expand=new Set(); drawControls(); layoutAndRun(); openNode(id);
   if(push) history.pushState({view:'explorer',center:id,mode:ex.mode},""); }
